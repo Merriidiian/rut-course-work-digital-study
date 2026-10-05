@@ -3,8 +3,8 @@ package main
 import (
 	"net/http"
 
-	"university/internal/buildings"
-	"university/internal/server"
+	"university/buildings/internal/buildings"
+	"university/buildings/internal/server"
 )
 
 func main() {

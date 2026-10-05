@@ -1,5 +1,5 @@
 using Npgsql;
-using University.Core.Models;
+using University.Contracts;
 
 namespace University.Core.Repositories;
 

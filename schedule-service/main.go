@@ -3,8 +3,8 @@ package main
 import (
 	"net/http"
 
-	"university/internal/schedule"
-	"university/internal/server"
+	"university/schedule/internal/schedule"
+	"university/schedule/internal/server"
 )
 
 func main() {

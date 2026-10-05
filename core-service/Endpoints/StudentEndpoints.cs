@@ -1,5 +1,5 @@
 using Npgsql;
-using University.Core.Models;
+using University.Contracts;
 using University.Core.Repositories;
 
 namespace University.Core.Endpoints;
@@ -20,7 +20,7 @@ public static class StudentEndpoints
             CancellationToken cancellationToken) =>
         {
             var result = await repository.FindStudentAsync(id, cancellationToken);
-            return result is null ? Results.NotFound() : Results.Ok(result);
+            return result is null ? Results.NotFound(new ApiError("Record not found")) : Results.Ok(result);
         });
 
         routes.MapPost("", async (
@@ -30,7 +30,7 @@ public static class StudentEndpoints
         {
             if (string.IsNullOrWhiteSpace(request.Name) || string.IsNullOrWhiteSpace(request.Group))
             {
-                return Results.BadRequest("Invalid students");
+                return Results.BadRequest(new ApiError("Invalid students"));
             }
 
             var result = await repository.SaveStudentAsync(null, request, cancellationToken);
@@ -45,11 +45,11 @@ public static class StudentEndpoints
         {
             if (string.IsNullOrWhiteSpace(request.Name) || string.IsNullOrWhiteSpace(request.Group))
             {
-                return Results.BadRequest("Invalid students");
+                return Results.BadRequest(new ApiError("Invalid students"));
             }
 
             var result = await repository.SaveStudentAsync(id, request, cancellationToken);
-            return result is null ? Results.NotFound() : Results.Ok(result);
+            return result is null ? Results.NotFound(new ApiError("Record not found")) : Results.Ok(result);
         });
 
         routes.MapDelete("/{id:guid}", async (
@@ -60,11 +60,11 @@ public static class StudentEndpoints
             try
             {
                 var deleted = await repository.DeleteStudentAsync(id, cancellationToken);
-                return deleted ? Results.NoContent() : Results.NotFound();
+                return deleted ? Results.NoContent() : Results.NotFound(new ApiError("Record not found"));
             }
             catch (PostgresException exception) when (exception.SqlState == "23503")
             {
-                return Results.Conflict("Record is used by a lesson");
+                return Results.Conflict(new ApiError("Record is used by a lesson"));
             }
         });
     }

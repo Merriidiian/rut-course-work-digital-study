@@ -132,7 +132,11 @@
         "namespace": "digital-university"
       },
       "data": {
-        "init.sql": "CREATE EXTENSION IF NOT EXISTS btree_gist;\n\nCREATE TABLE students (\n    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n    name text NOT NULL,\n    group_name text NOT NULL,\n    email text NOT NULL DEFAULT ''\n);\n\nCREATE TABLE teachers (\n    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n    name text NOT NULL,\n    group_name text NOT NULL DEFAULT '',\n    email text NOT NULL DEFAULT ''\n);\n\nCREATE TABLE subjects (\n    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n    name text NOT NULL,\n    hours integer NOT NULL CHECK (hours > 0)\n);\n\nCREATE TABLE buildings (\n    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n    name text NOT NULL,\n    address text NOT NULL\n);\n\nCREATE TABLE rooms (\n    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n    name text NOT NULL,\n    group_name text NOT NULL DEFAULT '',\n    email text NOT NULL DEFAULT '',\n    capacity integer NOT NULL CHECK (capacity > 0),\n    building_id uuid NOT NULL REFERENCES buildings(id)\n);\n\nCREATE TABLE bookings (\n    id uuid PRIMARY KEY,\n    room_id uuid NOT NULL REFERENCES rooms(id),\n    starts_at timestamptz NOT NULL,\n    ends_at timestamptz NOT NULL,\n    CHECK (ends_at > starts_at),\n    EXCLUDE USING gist (\n        room_id WITH =,\n        tstzrange(starts_at, ends_at, '[)') WITH &&\n    )\n);\n\nCREATE TABLE lessons (\n    id uuid PRIMARY KEY,\n    teacher_id uuid NOT NULL REFERENCES teachers(id),\n    subject_id uuid NOT NULL REFERENCES subjects(id),\n    room_id uuid NOT NULL REFERENCES rooms(id),\n    group_name text NOT NULL,\n    starts_at timestamptz NOT NULL,\n    ends_at timestamptz NOT NULL,\n    status text NOT NULL,\n    CHECK (ends_at > starts_at),\n    EXCLUDE USING gist (\n        teacher_id WITH =,\n        tstzrange(starts_at, ends_at, '[)') WITH &&\n    ),\n    EXCLUDE USING gist (\n        group_name WITH =,\n        tstzrange(starts_at, ends_at, '[)') WITH &&\n    )\n);\n\nINSERT INTO buildings (id, name, address) VALUES\n    ('55555555-5555-5555-5555-555555555551', 'Учебный корпус 1', 'Москва, ул. Образцова, 9'),\n    ('55555555-5555-5555-5555-555555555552', 'Учебный корпус 2', 'Москва, ул. Образцова, 9, строение 2');\n\nINSERT INTO students (id, name, group_name, email) VALUES\n('11111111-1111-1111-1111-111111111111','Иванов Иван','ИТ-271','ivanov@university.ru'),\n('11111111-1111-1111-1111-111111111112','Петрова Анна','ИТ-271','petrova@university.ru'),\n('11111111-1111-1111-1111-111111111113','Смирнов Алексей','ИТ-272','smirnov@university.ru');\nINSERT INTO teachers (id, name, group_name, email) VALUES\n('22222222-2222-2222-2222-222222222221','Соколов Дмитрий','','sokolov@university.ru'),\n('22222222-2222-2222-2222-222222222222','Волкова Елена','','volkova@university.ru');\nINSERT INTO rooms (id, name, group_name, email, capacity, building_id) VALUES\n('33333333-3333-3333-3333-333333333331','Кабинет 301','','',25,'55555555-5555-5555-5555-555555555551'),\n('33333333-3333-3333-3333-333333333332','Компьютерный класс 405','','',30,'55555555-5555-5555-5555-555555555552');\nINSERT INTO subjects VALUES\n('44444444-4444-4444-4444-444444444441','Проектирование корпоративных приложений',108),\n('44444444-4444-4444-4444-444444444442','Базы данных',144),\n('44444444-4444-4444-4444-444444444443','Алгоритмы и структуры данных',144),\n('44444444-4444-4444-4444-444444444444','Компьютерные сети',108),\n('44444444-4444-4444-4444-444444444445','Разработка веб-приложений',108),\n('44444444-4444-4444-4444-444444444446','Информационная безопасность',72);\n"
+        "00_databases.sql": "DO $$\nBEGIN\n    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'core_user') THEN\n        CREATE ROLE core_user LOGIN PASSWORD 'core';\n    END IF;\nEND\n$$;\n\nSELECT 'CREATE DATABASE university_core OWNER core_user'\nWHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'university_core')\n\\gexec\n\nREVOKE CONNECT ON DATABASE university_core FROM PUBLIC;\nGRANT CONNECT ON DATABASE university_core TO core_user;\n\nDO $$\nBEGIN\n    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'rooms_user') THEN\n        CREATE ROLE rooms_user LOGIN PASSWORD 'rooms';\n    END IF;\nEND\n$$;\n\nSELECT 'CREATE DATABASE university_rooms OWNER rooms_user'\nWHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'university_rooms')\n\\gexec\n\nREVOKE CONNECT ON DATABASE university_rooms FROM PUBLIC;\nGRANT CONNECT ON DATABASE university_rooms TO rooms_user;\n\nDO $$\nBEGIN\n    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'buildings_user') THEN\n        CREATE ROLE buildings_user LOGIN PASSWORD 'buildings';\n    END IF;\nEND\n$$;\n\nSELECT 'CREATE DATABASE university_buildings OWNER buildings_user'\nWHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'university_buildings')\n\\gexec\n\nREVOKE CONNECT ON DATABASE university_buildings FROM PUBLIC;\nGRANT CONNECT ON DATABASE university_buildings TO buildings_user;\n\nDO $$\nBEGIN\n    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'schedule_user') THEN\n        CREATE ROLE schedule_user LOGIN PASSWORD 'schedule';\n    END IF;\nEND\n$$;\n\nSELECT 'CREATE DATABASE university_schedule OWNER schedule_user'\nWHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'university_schedule')\n\\gexec\n\nREVOKE CONNECT ON DATABASE university_schedule FROM PUBLIC;\nGRANT CONNECT ON DATABASE university_schedule TO schedule_user;\n",
+        "01_core.sql": "\\connect university_core\nCREATE TABLE IF NOT EXISTS students (\n    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n    name text NOT NULL,\n    group_name text NOT NULL,\n    email text NOT NULL DEFAULT ''\n);\n\nCREATE TABLE IF NOT EXISTS teachers (\n    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n    name text NOT NULL,\n    email text NOT NULL DEFAULT ''\n);\n\nCREATE TABLE IF NOT EXISTS subjects (\n    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n    name text NOT NULL,\n    hours integer NOT NULL CHECK (hours > 0)\n);\n\nINSERT INTO students (id, name, group_name, email) VALUES\n('11111111-1111-1111-1111-111111111111','Иванов Иван','ИТ-271','ivanov@university.ru'),\n('11111111-1111-1111-1111-111111111112','Петрова Анна','ИТ-271','petrova@university.ru'),\n('11111111-1111-1111-1111-111111111113','Смирнов Алексей','ИТ-272','smirnov@university.ru')\nON CONFLICT (id) DO NOTHING;\n\nINSERT INTO teachers (id, name, email) VALUES\n('22222222-2222-2222-2222-222222222221','Соколов Дмитрий','sokolov@university.ru'),\n('22222222-2222-2222-2222-222222222222','Волкова Елена','volkova@university.ru')\nON CONFLICT (id) DO NOTHING;\n\nINSERT INTO subjects VALUES\n('44444444-4444-4444-4444-444444444441','Проектирование корпоративных приложений',108),\n('44444444-4444-4444-4444-444444444442','Базы данных',144),\n('44444444-4444-4444-4444-444444444443','Алгоритмы и структуры данных',144),\n('44444444-4444-4444-4444-444444444444','Компьютерные сети',108),\n('44444444-4444-4444-4444-444444444445','Разработка веб-приложений',108),\n('44444444-4444-4444-4444-444444444446','Информационная безопасность',72)\nON CONFLICT (id) DO NOTHING;\n\nGRANT USAGE ON SCHEMA public TO core_user;\nGRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO core_user;\n",
+        "02_rooms.sql": "\\connect university_rooms\nCREATE EXTENSION IF NOT EXISTS btree_gist;\n\nCREATE TABLE IF NOT EXISTS rooms (\n    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n    name text NOT NULL,\n    capacity integer NOT NULL CHECK (capacity > 0),\n    building_id uuid NOT NULL\n);\n\nCREATE TABLE IF NOT EXISTS bookings (\n    id uuid PRIMARY KEY,\n    room_id uuid NOT NULL REFERENCES rooms(id),\n    starts_at timestamptz NOT NULL,\n    ends_at timestamptz NOT NULL,\n    CHECK (ends_at > starts_at),\n    EXCLUDE USING gist (\n        room_id WITH =,\n        tstzrange(starts_at, ends_at, '[)') WITH &&\n    )\n);\n\nINSERT INTO rooms (id, name, capacity, building_id) VALUES\n('33333333-3333-3333-3333-333333333331','Кабинет 301',25,'55555555-5555-5555-5555-555555555551'),\n('33333333-3333-3333-3333-333333333332','Компьютерный класс 405',30,'55555555-5555-5555-5555-555555555552')\nON CONFLICT (id) DO NOTHING;\n\nGRANT USAGE ON SCHEMA public TO rooms_user;\nGRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO rooms_user;\n",
+        "03_buildings.sql": "\\connect university_buildings\nCREATE TABLE IF NOT EXISTS buildings (\n    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n    name text NOT NULL,\n    address text NOT NULL\n);\n\nINSERT INTO buildings (id, name, address) VALUES\n    ('55555555-5555-5555-5555-555555555551', 'Учебный корпус 1', 'Москва, ул. Образцова, 9'),\n    ('55555555-5555-5555-5555-555555555552', 'Учебный корпус 2', 'Москва, ул. Образцова, 9, строение 2')\nON CONFLICT (id) DO NOTHING;\n\nGRANT USAGE ON SCHEMA public TO buildings_user;\nGRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO buildings_user;\n",
+        "04_schedule.sql": "\\connect university_schedule\nCREATE EXTENSION IF NOT EXISTS btree_gist;\n\nCREATE TABLE IF NOT EXISTS lessons (\n    id uuid PRIMARY KEY,\n    teacher_id uuid NOT NULL,\n    subject_id uuid NOT NULL,\n    room_id uuid NOT NULL,\n    group_name text NOT NULL,\n    starts_at timestamptz NOT NULL,\n    ends_at timestamptz NOT NULL,\n    status text NOT NULL,\n    CHECK (ends_at > starts_at),\n    EXCLUDE USING gist (\n        teacher_id WITH =,\n        tstzrange(starts_at, ends_at, '[)') WITH &&\n    ),\n    EXCLUDE USING gist (\n        group_name WITH =,\n        tstzrange(starts_at, ends_at, '[)') WITH &&\n    )\n);\n\nGRANT USAGE ON SCHEMA public TO schedule_user;\nGRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO schedule_user;\n"
       }
     },
     {
@@ -275,7 +279,7 @@
             "containers": [
               {
                 "name": "core",
-                "image": "digital-university-core:local-v2",
+                "image": "digital-university-core:local-v4",
                 "imagePullPolicy": "IfNotPresent",
                 "ports": [
                   {
@@ -285,7 +289,11 @@
                 "env": [
                   {
                     "name": "ConnectionStrings__Postgres",
-                    "value": "Host=postgres;Database=university;Username=postgres;Password=postgres"
+                    "value": "Host=postgres;Database=university_core;Username=core_user;Password=core"
+                  },
+                  {
+                    "name": "ScheduleUrl",
+                    "value": "http://schedule:8080/"
                   }
                 ],
                 "readinessProbe": {
@@ -349,7 +357,7 @@
             "containers": [
               {
                 "name": "schedule",
-                "image": "digital-university-schedule:local-v2",
+                "image": "digital-university-schedule:local-v4",
                 "imagePullPolicy": "IfNotPresent",
                 "ports": [
                   {
@@ -359,7 +367,7 @@
                 "env": [
                   {
                     "name": "DATABASE_URL",
-                    "value": "postgres://postgres:postgres@postgres:5432/university?sslmode=disable"
+                    "value": "postgres://schedule_user:schedule@postgres:5432/university_schedule?sslmode=disable"
                   },
                   {
                     "name": "PORT",
@@ -435,7 +443,7 @@
             "containers": [
               {
                 "name": "rooms",
-                "image": "digital-university-rooms:local-v2",
+                "image": "digital-university-rooms:local-v4",
                 "imagePullPolicy": "IfNotPresent",
                 "ports": [
                   {
@@ -445,11 +453,15 @@
                 "env": [
                   {
                     "name": "DATABASE_URL",
-                    "value": "postgres://postgres:postgres@postgres:5432/university?sslmode=disable"
+                    "value": "postgres://rooms_user:rooms@postgres:5432/university_rooms?sslmode=disable"
                   },
                   {
                     "name": "PORT",
                     "value": "8080"
+                  },
+                  {
+                    "name": "BUILDINGS_URL",
+                    "value": "http://buildings:8080"
                   }
                 ],
                 "readinessProbe": {
@@ -513,7 +525,7 @@
             "containers": [
               {
                 "name": "buildings",
-                "image": "digital-university-buildings:local-v2",
+                "image": "digital-university-buildings:local-v4",
                 "imagePullPolicy": "IfNotPresent",
                 "ports": [
                   {
@@ -523,11 +535,15 @@
                 "env": [
                   {
                     "name": "DATABASE_URL",
-                    "value": "postgres://postgres:postgres@postgres:5432/university?sslmode=disable"
+                    "value": "postgres://buildings_user:buildings@postgres:5432/university_buildings?sslmode=disable"
                   },
                   {
                     "name": "PORT",
                     "value": "8080"
+                  },
+                  {
+                    "name": "ROOMS_URL",
+                    "value": "http://rooms:8080"
                   }
                 ],
                 "readinessProbe": {
@@ -562,6 +578,60 @@
             "targetPort": 8080
           }
         ]
+      }
+    },
+    {
+      "apiVersion": "batch/v1",
+      "kind": "Job",
+      "metadata": {
+        "name": "database-init-v3",
+        "namespace": "digital-university"
+      },
+      "spec": {
+        "backoffLimit": 3,
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "database-init"
+            }
+          },
+          "spec": {
+            "restartPolicy": "OnFailure",
+            "enableServiceLinks": false,
+            "containers": [
+              {
+                "name": "init",
+                "image": "postgres:16-alpine",
+                "env": [
+                  {
+                    "name": "PGPASSWORD",
+                    "value": "postgres"
+                  }
+                ],
+                "command": [
+                  "sh",
+                  "-c",
+                  "until pg_isready -h postgres -U postgres -d university; do sleep 2; done; for file in /init/*.sql; do psql -h postgres -U postgres -d university -v ON_ERROR_STOP=1 -f \"$file\" || exit 1; done"
+                ],
+                "volumeMounts": [
+                  {
+                    "name": "init",
+                    "mountPath": "/init",
+                    "readOnly": true
+                  }
+                ]
+              }
+            ],
+            "volumes": [
+              {
+                "name": "init",
+                "configMap": {
+                  "name": "database-init"
+                }
+              }
+            ]
+          }
+        }
       }
     }
   ]
