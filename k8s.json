@@ -1,0 +1,584 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "digital-university"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "metadata": {
+        "name": "gateway-config",
+        "namespace": "digital-university"
+      },
+      "data": {
+        "nginx.conf": "events {}\nhttp {\n server {\n  listen 8080;\n  location /api/students/ {\n   location ~ ^/api/students/[^/]+/schedule$ { proxy_pass http://schedule:8080; }\n   proxy_pass http://students:8080;\n  }\n  location = /api/students { proxy_pass http://students:8080; }\n  location /api/teachers { proxy_pass http://teachers:8080; }\n  location /api/rooms { proxy_pass http://rooms:8080; }\n  location /api/subjects { proxy_pass http://schedule:8080; }\n  location /api/lessons { proxy_pass http://schedule:8080; }\n  location /swagger { proxy_pass http://schedule:8080; }\n  location / { return 404; }\n }\n}\n"
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "gateway",
+        "namespace": "digital-university"
+      },
+      "spec": {
+        "replicas": 1,
+        "strategy": {
+          "type": "Recreate"
+        },
+        "selector": {
+          "matchLabels": {
+            "app": "gateway"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "gateway"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "gateway",
+                "image": "nginx:1.27-alpine",
+                "imagePullPolicy": "IfNotPresent",
+                "ports": [
+                  {
+                    "containerPort": 8080
+                  }
+                ],
+                "readinessProbe": {
+                  "tcpSocket": {
+                    "port": 8080
+                  },
+                  "initialDelaySeconds": 2,
+                  "periodSeconds": 3
+                },
+                "volumeMounts": [
+                  {
+                    "name": "config",
+                    "mountPath": "/etc/nginx/nginx.conf",
+                    "subPath": "nginx.conf",
+                    "readOnly": true
+                  }
+                ]
+              }
+            ],
+            "volumes": [
+              {
+                "name": "config",
+                "configMap": {
+                  "name": "gateway-config"
+                }
+              }
+            ],
+            "enableServiceLinks": false
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "gateway",
+        "namespace": "digital-university"
+      },
+      "spec": {
+        "selector": {
+          "app": "gateway"
+        },
+        "ports": [
+          {
+            "name": "port-8080",
+            "port": 8080,
+            "targetPort": 8080,
+            "nodePort": 30804
+          }
+        ],
+        "type": "NodePort"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "PersistentVolumeClaim",
+      "metadata": {
+        "name": "postgres-data",
+        "namespace": "digital-university"
+      },
+      "spec": {
+        "accessModes": [
+          "ReadWriteOnce"
+        ],
+        "resources": {
+          "requests": {
+            "storage": "1Gi"
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "metadata": {
+        "name": "database-init",
+        "namespace": "digital-university"
+      },
+      "data": {
+        "init.sql": "CREATE EXTENSION IF NOT EXISTS btree_gist;\nCREATE TABLE students(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),name text NOT NULL,group_name text NOT NULL DEFAULT '',email text NOT NULL DEFAULT '',capacity integer NOT NULL DEFAULT 0);\nCREATE TABLE teachers(LIKE students INCLUDING ALL);\nCREATE TABLE rooms(LIKE students INCLUDING ALL);\nALTER TABLE rooms ADD CHECK (capacity>0);\nCREATE TABLE subjects(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),name text NOT NULL,hours integer NOT NULL CHECK(hours>0));\nCREATE TABLE bookings(id uuid PRIMARY KEY,room_id uuid NOT NULL REFERENCES rooms(id),starts_at timestamptz NOT NULL,ends_at timestamptz NOT NULL,CHECK(ends_at>starts_at),EXCLUDE USING gist(room_id WITH =,tstzrange(starts_at,ends_at,'[)') WITH &&));\nCREATE TABLE lessons(id uuid PRIMARY KEY,teacher_id uuid NOT NULL REFERENCES teachers(id),subject_id uuid NOT NULL REFERENCES subjects(id),room_id uuid NOT NULL REFERENCES rooms(id),group_name text NOT NULL,starts_at timestamptz NOT NULL,ends_at timestamptz NOT NULL,status text NOT NULL,CHECK(ends_at>starts_at),EXCLUDE USING gist(teacher_id WITH =,tstzrange(starts_at,ends_at,'[)') WITH &&),EXCLUDE USING gist(group_name WITH =,tstzrange(starts_at,ends_at,'[)') WITH &&));\nINSERT INTO students VALUES\n('11111111-1111-1111-1111-111111111111','Иванов Иван','ИТ-271','ivanov@university.ru',0),\n('11111111-1111-1111-1111-111111111112','Петрова Анна','ИТ-271','petrova@university.ru',0),\n('11111111-1111-1111-1111-111111111113','Смирнов Алексей','ИТ-272','smirnov@university.ru',0);\nINSERT INTO teachers VALUES\n('22222222-2222-2222-2222-222222222221','Соколов Дмитрий','','sokolov@university.ru',0),\n('22222222-2222-2222-2222-222222222222','Волкова Елена','','volkova@university.ru',0);\nINSERT INTO rooms VALUES\n('33333333-3333-3333-3333-333333333331','Кабинет 301','','',25),\n('33333333-3333-3333-3333-333333333332','Компьютерный класс 405','','',30);\nINSERT INTO subjects VALUES\n('44444444-4444-4444-4444-444444444441','Проектирование корпоративных приложений',108),\n('44444444-4444-4444-4444-444444444442','Базы данных',144),\n('44444444-4444-4444-4444-444444444443','Алгоритмы и структуры данных',144),\n('44444444-4444-4444-4444-444444444444','Компьютерные сети',108),\n('44444444-4444-4444-4444-444444444445','Разработка веб-приложений',108),\n('44444444-4444-4444-4444-444444444446','Информационная безопасность',72);\n"
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "postgres",
+        "namespace": "digital-university"
+      },
+      "spec": {
+        "replicas": 1,
+        "strategy": {
+          "type": "Recreate"
+        },
+        "selector": {
+          "matchLabels": {
+            "app": "postgres"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "postgres"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "postgres",
+                "image": "postgres:16-alpine",
+                "imagePullPolicy": "IfNotPresent",
+                "ports": [
+                  {
+                    "containerPort": 5432
+                  }
+                ],
+                "env": [
+                  {
+                    "name": "POSTGRES_DB",
+                    "value": "university"
+                  },
+                  {
+                    "name": "POSTGRES_PASSWORD",
+                    "value": "postgres"
+                  },
+                  {
+                    "name": "POSTGRES_USER",
+                    "value": "postgres"
+                  }
+                ],
+                "readinessProbe": {
+                  "exec": {
+                    "command": [
+                      "pg_isready",
+                      "-U",
+                      "postgres",
+                      "-d",
+                      "university"
+                    ]
+                  },
+                  "initialDelaySeconds": 3,
+                  "periodSeconds": 3
+                },
+                "volumeMounts": [
+                  {
+                    "name": "data",
+                    "mountPath": "/var/lib/postgresql/data"
+                  },
+                  {
+                    "name": "init",
+                    "mountPath": "/docker-entrypoint-initdb.d",
+                    "readOnly": true
+                  }
+                ]
+              }
+            ],
+            "volumes": [
+              {
+                "name": "data",
+                "persistentVolumeClaim": {
+                  "claimName": "postgres-data"
+                }
+              },
+              {
+                "name": "init",
+                "configMap": {
+                  "name": "database-init"
+                }
+              }
+            ],
+            "enableServiceLinks": false
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "postgres",
+        "namespace": "digital-university"
+      },
+      "spec": {
+        "selector": {
+          "app": "postgres"
+        },
+        "ports": [
+          {
+            "name": "port-5432",
+            "port": 5432,
+            "targetPort": 5432
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "rooms",
+        "namespace": "digital-university"
+      },
+      "spec": {
+        "replicas": 1,
+        "strategy": {
+          "type": "Recreate"
+        },
+        "selector": {
+          "matchLabels": {
+            "app": "rooms"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "rooms"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "rooms",
+                "image": "digital-university-rooms:local",
+                "imagePullPolicy": "IfNotPresent",
+                "ports": [
+                  {
+                    "containerPort": 8080
+                  }
+                ],
+                "env": [
+                  {
+                    "name": "DATABASE_URL",
+                    "value": "postgres://postgres:postgres@postgres:5432/university?sslmode=disable"
+                  },
+                  {
+                    "name": "ENTITY",
+                    "value": "rooms"
+                  },
+                  {
+                    "name": "PORT",
+                    "value": "8080"
+                  }
+                ],
+                "readinessProbe": {
+                  "tcpSocket": {
+                    "port": 8080
+                  },
+                  "initialDelaySeconds": 2,
+                  "periodSeconds": 3
+                }
+              }
+            ],
+            "enableServiceLinks": false
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "rooms",
+        "namespace": "digital-university"
+      },
+      "spec": {
+        "selector": {
+          "app": "rooms"
+        },
+        "ports": [
+          {
+            "name": "port-8080",
+            "port": 8080,
+            "targetPort": 8080
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "schedule",
+        "namespace": "digital-university"
+      },
+      "spec": {
+        "replicas": 1,
+        "strategy": {
+          "type": "Recreate"
+        },
+        "selector": {
+          "matchLabels": {
+            "app": "schedule"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "schedule"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "schedule",
+                "image": "digital-university-schedule:local",
+                "imagePullPolicy": "IfNotPresent",
+                "ports": [
+                  {
+                    "containerPort": 8080
+                  }
+                ],
+                "env": [
+                  {
+                    "name": "ConnectionStrings__Postgres",
+                    "value": "Host=postgres;Database=university;Username=postgres;Password=postgres"
+                  },
+                  {
+                    "name": "RoomsUrl",
+                    "value": "http://rooms:8080"
+                  },
+                  {
+                    "name": "StudentsUrl",
+                    "value": "http://students:8080"
+                  },
+                  {
+                    "name": "TeachersUrl",
+                    "value": "http://teachers:8080"
+                  }
+                ],
+                "readinessProbe": {
+                  "tcpSocket": {
+                    "port": 8080
+                  },
+                  "initialDelaySeconds": 2,
+                  "periodSeconds": 3
+                }
+              }
+            ],
+            "enableServiceLinks": false
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "schedule",
+        "namespace": "digital-university"
+      },
+      "spec": {
+        "selector": {
+          "app": "schedule"
+        },
+        "ports": [
+          {
+            "name": "port-8080",
+            "port": 8080,
+            "targetPort": 8080
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "students",
+        "namespace": "digital-university"
+      },
+      "spec": {
+        "replicas": 1,
+        "strategy": {
+          "type": "Recreate"
+        },
+        "selector": {
+          "matchLabels": {
+            "app": "students"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "students"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "students",
+                "image": "digital-university-students:local",
+                "imagePullPolicy": "IfNotPresent",
+                "ports": [
+                  {
+                    "containerPort": 8080
+                  }
+                ],
+                "env": [
+                  {
+                    "name": "DATABASE_URL",
+                    "value": "postgres://postgres:postgres@postgres:5432/university?sslmode=disable"
+                  },
+                  {
+                    "name": "ENTITY",
+                    "value": "students"
+                  },
+                  {
+                    "name": "PORT",
+                    "value": "8080"
+                  }
+                ],
+                "readinessProbe": {
+                  "tcpSocket": {
+                    "port": 8080
+                  },
+                  "initialDelaySeconds": 2,
+                  "periodSeconds": 3
+                }
+              }
+            ],
+            "enableServiceLinks": false
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "students",
+        "namespace": "digital-university"
+      },
+      "spec": {
+        "selector": {
+          "app": "students"
+        },
+        "ports": [
+          {
+            "name": "port-8080",
+            "port": 8080,
+            "targetPort": 8080
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "teachers",
+        "namespace": "digital-university"
+      },
+      "spec": {
+        "replicas": 1,
+        "strategy": {
+          "type": "Recreate"
+        },
+        "selector": {
+          "matchLabels": {
+            "app": "teachers"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "teachers"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "teachers",
+                "image": "digital-university-teachers:local",
+                "imagePullPolicy": "IfNotPresent",
+                "ports": [
+                  {
+                    "containerPort": 8080
+                  }
+                ],
+                "env": [
+                  {
+                    "name": "DATABASE_URL",
+                    "value": "postgres://postgres:postgres@postgres:5432/university?sslmode=disable"
+                  },
+                  {
+                    "name": "ENTITY",
+                    "value": "teachers"
+                  },
+                  {
+                    "name": "PORT",
+                    "value": "8080"
+                  }
+                ],
+                "readinessProbe": {
+                  "tcpSocket": {
+                    "port": 8080
+                  },
+                  "initialDelaySeconds": 2,
+                  "periodSeconds": 3
+                }
+              }
+            ],
+            "enableServiceLinks": false
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "teachers",
+        "namespace": "digital-university"
+      },
+      "spec": {
+        "selector": {
+          "app": "teachers"
+        },
+        "ports": [
+          {
+            "name": "port-8080",
+            "port": 8080,
+            "targetPort": 8080
+          }
+        ]
+      }
+    }
+  ]
+}
