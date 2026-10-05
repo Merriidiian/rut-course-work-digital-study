@@ -1,0 +1,18 @@
+package main
+
+import (
+	"net/http"
+
+	"university/internal/rooms"
+	"university/internal/server"
+)
+
+func main() {
+	database := server.OpenDatabase()
+	defer database.Close()
+
+	handler := rooms.NewHandler(database)
+	router := http.NewServeMux()
+	handler.Register(router)
+	server.Serve(router)
+}
